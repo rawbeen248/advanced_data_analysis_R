@@ -1,0 +1,1249 @@
+
+---
+title: "Advanced Data Analysis with R"
+author: "Rabindra Adhikari"
+date: "2024-03-03"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+<style>
+/* Style for the entire document */
+body {background-color: lightblue;}
+
+.tocify-header {font-size: 18px; color:rgba(94, 179, 9);font-weight: 700;}
+
+.tocify-subheader[data-tag="2"] {font-size: 14px; color:rgba(5, 161, 181);font-weight: 400;}
+
+.tocify-subheader[data-tag="3"] {font-size: 12px; color:rgba(11, 184, 155);font-weight: 300;}
+</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+
+# Loading Libraries
+```{r, echo=FALSE, warning = FALSE}
+library(dplyr)
+library(lubridate)
+library(tsibble)
+library(forecast)
+library(urca)
+library(tseries)
+library(ggplot2)
+```
+
+# Loading Datasets
+```{r}
+inflation_rate_cpi <- read.csv("data/inflation_rate_cpi.csv")
+unemployment_rate <- read.csv("data/unemployment_rate.csv")
+```
+
+
+# Separating the data based on countries and converting into time series
+```{r}
+# Convert the Time column to a Date type
+unemployment_rate <- unemployment_rate %>%
+  mutate(Time = ymd(paste(Time, "01", sep = "-")))
+
+inflation_rate_cpi <- inflation_rate_cpi %>%
+  mutate(Time = ymd(paste(Time, "01", sep = "-")))
+
+# Creating time series for each country and dataset
+
+# Spain
+
+spain_unemployment <- unemployment_rate %>%
+  filter(Country == "Spain")
+SPN_UE_TS <- ts(spain_unemployment$Value, start=c(2000,1), frequency=12)
+
+spain_inflation_rate <- inflation_rate_cpi %>%
+  filter(Country == "Spain")
+SPN_I_TS <- ts(spain_inflation_rate$Value, start=c(2000,1), frequency=12)
+
+# Germany
+
+germany_unemployment <- unemployment_rate %>%
+  filter(Country == "Germany")
+GER_UE_TS <- ts(germany_unemployment$Value, start=c(2000,1), frequency=12)
+
+germany_inflation_rate <- inflation_rate_cpi %>%
+  filter(Country == "Germany")
+GER_I_TS <- ts(germany_inflation_rate$Value, start=c(2000,1), frequency=12)
+
+# Portugal
+
+portugal_unemployment <- unemployment_rate %>%
+  filter(Country == "Portugal")
+POR_UE_TS <- ts(portugal_unemployment$Value, start=c(2000,1), frequency=12)
+
+portugal_inflation_rate <- inflation_rate_cpi %>%
+  filter(Country == "Portugal")
+POR_I_TS <- ts(portugal_inflation_rate$Value, start=c(2000,1), frequency=12)
+
+```
+
+
+# Defining time frame to split data
+```{r}
+
+# Define the start and end points for the training set
+start_train <- c(2000, 01)  # Start of the training set (January 2000)
+end_train <- c(2017, 12)   # End of the training set (December 2017)
+
+# Define the start and end points for the test set
+start_test <- c(2018, 01)   # Start of the test set (January 2018)
+end_test <- c(2019, 12)     # End of the test set (December 2019)
+```
+
+
+# GERMANY
+
+## Splitting the dataset
+```{r}
+# Inflation Data
+
+# Create the training set
+GER_I_train <- window(GER_I_TS, start=start_train, end=end_train)
+
+# Create the test set
+GER_I_test <- window(GER_I_TS, start=start_test, end=end_test)
+
+# Unemployment Data
+
+# Create the training set
+GER_UE_train <- window(GER_UE_TS, start=start_train, end=end_train)
+
+# Create the test set
+GER_UE_test <- window(GER_UE_TS, start=start_test, end=end_test)
+```
+
+
+## Descriptive Statistics of the Data
+
+```{r}
+print("Germany Inflation Rate Data Summary:")
+summary(GER_I_train)
+cat("\n")
+print("Germany Unemployment Rate Data Summary:")
+summary(GER_UE_train)
+```
+
+## Plotting Histogram
+```{r}
+# Inflation Germany
+hist(GER_I_train,col='steelblue', border = "white", xlab = 'Germany Inflation Rate Index', ylab = 'Number of periods', main = 'Germany Inflation Rate')
+
+# Unemployment Germany
+hist(GER_UE_train,col='steelblue', border = "white", xlab = 'Germany Unemployment Rate Index', ylab = 'Number of periods', main = 'Germany Unemployment Rate')
+```
+
+## Time Series Decomposition
+```{r}
+GER_I_train_decomposed <- decompose(GER_I_train)
+GER_UE_train_decomposed <- decompose(GER_UE_train)
+```
+
+
+## Plot the decomposed series
+```{r}
+plot(GER_I_train_decomposed)
+plot(GER_UE_train_decomposed)
+```
+
+## Box-Cox Transformation
+```{r warning=FALSE}
+BoxCox.lambda(GER_I_train)
+```
+For Germany Inflation series, we do not need to apply box-cox transformation as the lambda value is close to 1.
+
+```{r}
+BoxCox.lambda(GER_UE_train)
+```
+For Germany Unemployment series, we do need to apply box-cox transformation.
+
+```{r}
+lambda_ger_ue <- -0.007616981
+GER_UE_train_BoxCox <- BoxCox(GER_UE_train, lambda = lambda_ger_ue)
+```
+
+## Stationarity Check
+
+### ADF Test
+```{r}
+# Augmented Dickey-Fuller Test
+adf.test(GER_I_train)
+adf.test(GER_UE_train_BoxCox)
+```
+
+### KPSS Test
+```{r}
+# KPSS Test
+kpss.test(GER_I_train)
+kpss.test(GER_UE_train_BoxCox)
+
+```
+## Result of ADF and KPSS Test
+
+GER_I_train (Germany Inflation Rate Training Set)
+
+- ADF Test: p-value = 0.1512
+
+- KPSS Test: p-value = 0.03931
+
+
+GER_UE_train_BoxCox (Germany Unemployment Rate Training Set)
+
+- ADF Test: p-value = 0.449
+
+- KPSS Test: p-value = smaller than 0.01
+
+So, based on these results:
+
+- For GER_I_train, both tests show non-stationarity. So, we have to apply differencing to this series.
+
+- For GER_UE_train_BoxCox as well, both tests show non-stationarity. We definitely have to apply differencing to this series.
+
+
+## First-Order Differences
+
+```{r}
+GER_I_train_diff1 <- diff(GER_I_train)
+GER_UE_train_diff1 <- diff(GER_UE_train_BoxCox)
+```
+
+## Stationarity Check Again
+
+### ADF Test on the First-Order Differenced Series
+```{r}
+adf.test(GER_I_train_diff1)
+adf.test(GER_UE_train_diff1)
+```
+### KPSS Test on the First-Order Differenced Series
+
+```{r}
+# KPSS Test
+kpss.test(GER_I_train_diff1)
+kpss.test(GER_UE_train_diff1)
+
+```
+## Result of ADF and KPSS Test on First-Order Differenced Series
+
+GER_I_train (Germany Inflation Rate Training Set)
+
+- ADF Test: p-value = smaller than 0.01
+
+- KPSS Test: p-value = greater than 0.1
+
+
+GER_UE_train (Germany Unemployment Rate Training Set)
+
+- ADF Test: p-value = smaller than 0.01
+
+- KPSS Test: p-value = smaller than 0.01
+
+So, based on these results:
+
+- For GER_I_train_diff1, both tests show stationarity. So, no further differencing required.
+
+- For GER_UE_train_diff1, both tests show that the series is still non-stationary even after first-order differencing. So, we can further apply second-order differencing for this series.
+
+## Second-Order Differencing
+```{r}
+GER_UE_train_diff2 <- diff(GER_UE_train_diff1)
+```
+
+## Stationarity Check for Unemployment Series
+
+### ADF Test on the Second-Order Differenced Series
+```{r}
+adf.test(GER_UE_train_diff2)
+```
+
+### KPSS Test on the Second-Order Differenced Series
+
+```{r}
+# KPSS Test
+kpss.test(GER_UE_train_diff2)
+```
+## Result of ADF and KPSS Test on Second-Order Differenced Series for Unemployment Data
+
+GER_UE_train (Germany Unemployment Rate Training Set)
+
+- ADF Test: p-value = smaller than 0.01
+
+- KPSS Test: p-value = greater than 0.1
+
+Based on these results, GER_UE_train_diff2 is stationary. 
+
+
+## Autocorrelation Function and Partial-Autocorrelation Function (ACF & PACF)
+
+```{r}
+acf(GER_I_train_diff1, lag.max = 36)
+pacf(GER_I_train_diff1, lag.max = 36)
+acf(GER_UE_train_diff2, lag.max = 36)
+pacf(GER_UE_train_diff2, lag.max = 36)
+```
+
+In the above plots for Inflation rate series of Germany we can see seasonal spikes so we will use SARIMA model but for Unemployment rate after Box-Cox transformation and second-order differencing there is no seasonal spikes in the ACF and PACF plots so we will use ARIMA model. 
+
+## Fitting the model
+```{r}
+# Fit SARIMA model
+
+# 2 different models for Inflation rate in Germany
+
+sarima_inflation_germany_1 <- Arima(GER_I_train,order = c(2,1,1),
+                          seasonal = list(order = c(1,0,2), period = 12),
+                          include.constant = FALSE)
+
+sarima_inflation_germany_2 <- Arima(GER_I_train,order = c(2,1,1),
+                          seasonal = list(order = c(2,0,1), period = 12),
+                          include.constant = FALSE)
+
+
+# 2 different models for Unemployment rate in Germany
+
+
+arima_unemployment_germany_1 <- Arima(GER_UE_train,
+                          order = c(2,2,3),  
+                          lambda="auto", include.constant = FALSE)
+
+
+arima_unemployment_germany_2 <- Arima(GER_UE_train,
+                          order = c(1,2,1),  
+                          lambda="auto", include.constant = FALSE)
+
+
+# Check model summaries
+cat("Summary of SARIMA Inflation Model 1:\n")
+summary(sarima_inflation_germany_1)
+cat("\n")
+
+cat("Summary of SARIMA Inflation Model 2:\n")
+summary(sarima_inflation_germany_2)
+cat("\n")
+
+cat("Summary of ARIMA Unemployment Model 1:\n")
+summary(arima_unemployment_germany_1)
+cat("\n")
+
+cat("Summary of ARIMA Unemployment Model 2:\n")
+summary(arima_unemployment_germany_2)
+cat("\n")
+
+```
+Based on the AIC and BIC values, these are the chosen models:
+
+For Germany Inflation Rate: sarima_inflation_germany_1
+(ARIMA(2,1,1)(1,0,2)[12])
+
+For Germany Unemployment Rate: arima_unemployment_germany_1
+(ARIMA(2,2,3)) with Box Cox transformation
+
+## Forecasting
+```{r}
+# Forecast for 24 months
+forecast_inflation_germany <- forecast(sarima_inflation_germany_1, h=24)
+forecast_unemployment_germany <- forecast(arima_unemployment_germany_1, h=24)
+
+forecast_inflation_germany <- forecast_inflation_germany$mean
+forecast_unemployment_germany <- forecast_unemployment_germany$mean
+
+```
+
+## Specifying the forecasted time period for the plot
+```{r}
+# Create a sequence of dates from January 2018 to December 2019
+forecast_dates <- seq(as.Date("2018-01-01"), as.Date("2019-12-01"), by = "months")
+
+# Convert the forecast dates to a decimal representation
+forecast_time_decimal <- as.numeric(format(forecast_dates, "%Y")) +
+                         as.numeric(format(forecast_dates, "%j")) / 365.25
+
+```
+
+## Plotting the forecasted and original data
+
+### Inflation
+```{r}
+# Plotting the original GER_I_train series
+plot(GER_I_train, main = "GER_I_train with Forecast", ylab = "Value", col = "blue",
+     xlim = c(2000, 2020))  # Set x-axis limits from 2000 to mid-2023
+
+# Adding the forecasted values to the plot
+lines(forecast_time_decimal, forecast_inflation_germany, col = "red")
+
+# Connect the last actual data point to the first forecasted point
+lines(c(time(GER_I_train)[length(GER_I_train)], forecast_time_decimal[1]), 
+      c(tail(GER_I_train, 1), forecast_inflation_germany[1]), col = "red")
+
+# Plotting the original data
+plot(GER_I_TS, main = "Original Inflation Data", xlab = "Time", ylab = "Value")
+
+```
+
+### Unemployment
+```{r}
+# Plotting the original GER_UE_train series
+plot(GER_UE_train, main = "GER_UE_train with Forecast", ylab = "Value", col = "blue",
+     xlim = range(c(time(GER_UE_train), forecast_time_decimal)), # Dynamically set x-axis limits
+     ylim = range(c(GER_UE_train, forecast_unemployment_germany))) # Set y-axis limits to include all values
+
+# Adding the forecasted values to the plot
+lines(forecast_time_decimal, forecast_unemployment_germany, col = "red")
+
+# Connect the last actual data point to the first forecasted point
+lines(c(tail(time(GER_UE_train), 1), forecast_time_decimal[1]), 
+      c(tail(GER_UE_train, 1), forecast_unemployment_germany[1]), col = "red")
+
+# Plotting the original data
+plot(GER_UE_TS, main = "Original Unemployment Data", xlab = "Time", ylab = "Value")
+```
+
+## Computing Different Metrics
+
+### Inflation
+```{r}
+# Mean Absolute Error (MAE)
+GER_I_mae <- mean(abs(GER_I_test - forecast_inflation_germany))
+
+# Mean Squared Error (MSE)
+GER_I_mse <- mean((GER_I_test - forecast_inflation_germany)^2)
+
+# Root Mean Squared Error (RMSE)
+GER_I_rmse <- sqrt(GER_I_mse)
+
+# R-squared (R2) or Coefficient of Determination
+GER_I_sst <- sum((GER_I_test - mean(GER_I_test))^2)
+GER_I_ssr <- sum((GER_I_test - forecast_inflation_germany)^2)
+GER_I_r2 <- 1 - (GER_I_ssr / GER_I_sst)
+
+# Mean Absolute Percentage Error (MAPE)
+GER_I_mape <- mean(abs((GER_I_test - forecast_inflation_germany) / GER_I_test)) * 100
+
+# Printing those metrics
+
+cat("Germany Inflation Rate \n\n")
+cat("Mean Absolute Error (MAE):", GER_I_mae, "\n")
+cat("Mean Squared Error (MSE):", GER_I_mse, "\n")
+cat("Root Mean Squared Error (RMSE):", GER_I_rmse, "\n")
+cat("R-squared (R2):", GER_I_r2, "\n")
+cat("Mean Absolute Percentage Error (MAPE):", GER_I_mape, "%\n")
+```
+
+### Unemployment
+```{r}
+# Mean Absolute Error (MAE)
+GER_UE_mae <- mean(abs(GER_UE_test - forecast_unemployment_germany))
+
+# Mean Squared Error (MSE)
+GER_UE_mse <- mean((GER_UE_test - forecast_unemployment_germany)^2)
+
+# Root Mean Squared Error (RMSE)
+GER_UE_rmse <- sqrt(GER_UE_mse)
+
+# R-squared (R2) or Coefficient of Determination
+GER_UE_sst <- sum((GER_UE_test - mean(GER_UE_test))^2)
+GER_UE_ssr <- sum((GER_UE_test - forecast_unemployment_germany)^2)
+GER_UE_r2 <- 1 - (GER_UE_ssr / GER_UE_sst)
+
+# Mean Absolute Percentage Error (MAPE)
+GER_UE_mape <- mean(abs((GER_UE_test - forecast_unemployment_germany) / GER_UE_test)) * 100
+
+# Printing those metrics
+
+cat("Germany Unemployment rate \n\n")
+cat("Mean Absolute Error (MAE):", GER_UE_mae, "\n")
+cat("Mean Squared Error (MSE):", GER_UE_mse, "\n")
+cat("Root Mean Squared Error (RMSE):", GER_UE_rmse, "\n")
+cat("R-squared (R2):", GER_UE_r2, "\n")
+cat("Mean Absolute Percentage Error (MAPE):", GER_UE_mape, "%\n")
+```
+
+## Residual Checks
+
+```{r}
+# Check residuals of the inflation model
+checkresiduals(sarima_inflation_germany_1)
+
+# Check residuals of the unemployment model
+checkresiduals(arima_unemployment_germany_1)
+```
+Based on the Ljung-Box test p-value for residuals from both models are higher than 0.05 which means that the residuals are independently distributed and the models are well-specified. The residuals are behaving like a white noise, indicating that the models have captured the underlying patterns in the data effectively. 
+
+
+
+
+
+# SPAIN
+
+
+## Splitting the dataset
+```{r}
+# Inflation Data
+
+# Create the training set
+SPN_I_train <- window(SPN_I_TS, start=start_train, end=end_train)
+
+# Create the test set
+SPN_I_test <- window(SPN_I_TS, start=start_test, end=end_test)
+
+# Unemployment Data
+
+# Create the training set
+SPN_UE_train <- window(SPN_UE_TS, start=start_train, end=end_train)
+
+# Create the test set
+SPN_UE_test <- window(SPN_UE_TS, start=start_test, end=end_test)
+```
+
+
+## Descriptive Statistics of the Data
+
+```{r}
+print("Spain Inflation Rate Data Summary:")
+summary(SPN_I_train)
+cat("\n")
+print("Spain Unemployment Rate Data Summary:")
+summary(SPN_UE_train)
+```
+
+
+## Plotting Histogram
+```{r}
+# Inflation Germany
+hist(SPN_I_train,col='steelblue', border = "white", xlab = 'Spain Inflation Rate Index', ylab = 'Number of periods', main = 'Spain Inflation Rate')
+
+# Unemployment Germany
+hist(SPN_UE_train,col='steelblue', border = "white", xlab = 'Spain Unemployment Rate Index', ylab = 'Number of periods', main = 'Spain Unemployment Rate')
+```
+
+## Time Series Decomposition
+```{r}
+SPN_I_train_decomposed <- decompose(SPN_I_train)
+SPN_UE_train_decomposed <- decompose(SPN_UE_train)
+```
+
+
+## Plot the decomposed series
+```{r}
+plot(SPN_I_train_decomposed)
+plot(SPN_UE_train_decomposed)
+```
+
+
+## Box-Cox Transformation
+```{r warning=FALSE}
+BoxCox.lambda(SPN_I_train)
+```
+For Spain Inflation series, we do not need to apply box-cox transformation as the lambda value is close to 1.
+
+```{r}
+BoxCox.lambda(SPN_UE_train)
+```
+For Spain Unemployment series, we will apply box-cox transformation.
+
+```{r}
+lambda_spn_ue <- 1.29099
+SPN_UE_train_BoxCox <- BoxCox(SPN_UE_train, lambda = lambda_spn_ue)
+```
+
+
+## Stationarity Check
+
+### ADF Test
+```{r}
+# Augmented Dickey-Fuller Test
+adf.test(SPN_I_train)
+adf.test(SPN_UE_train_BoxCox)
+```
+
+### KPSS Test
+```{r}
+# KPSS Test
+kpss.test(SPN_I_train)
+kpss.test(SPN_UE_train_BoxCox)
+
+```
+
+## Result of ADF and KPSS Test
+
+SPN_I_train (Spain Inflation Rate Training Set)
+
+- ADF Test: p-value = smaller than 0.01
+
+- KPSS Test: p-value = smaller than 0.01
+
+
+SPN_UE_train_BoxCox (Spain Unemployment Rate Training Set)
+
+- ADF Test: p-value = 0.668
+
+- KPSS Test: p-value = smaller than 0.01
+
+So, based on these results:
+
+- For SPN_I_train as well,ADF test suggests stationarity but KPSS test suggests non-stationarity. So, we apply first-order differencing to make the series consistently stationary.
+
+- For SPN_UE_train_BoxCox, both tests show non-stationarity. We definitely have to apply differencing to this series.
+
+
+## First-Order Differences
+
+```{r}
+SPN_I_train_diff1 <- diff(SPN_I_train)
+SPN_UE_train_diff1 <- diff(SPN_UE_train_BoxCox)
+```
+
+## Stationarity Check Again
+
+### ADF Test on the First-Order Differenced Series
+```{r}
+adf.test(SPN_I_train_diff1)
+adf.test(SPN_UE_train_diff1)
+```
+
+
+### KPSS Test on the First-Order Differenced Series
+
+```{r}
+# KPSS Test
+kpss.test(SPN_I_train_diff1)
+kpss.test(SPN_UE_train_diff1)
+
+```
+## Result of ADF and KPSS Test on First-Order Differenced Series
+
+SPN_I_train (Spain Inflation Rate Training Set)
+
+- ADF Test: p-value = smaller than 0.01
+
+- KPSS Test: p-value = greater than 0.1
+
+
+SPN_UE_train (Spain Unemployment Rate Training Set)
+
+- ADF Test: p-value = 0.3837
+
+- KPSS Test: p-value = 0.02501
+
+So, based on these results:
+
+- For SPN_I_train_diff1, both tests show stationarity. So, no further differencing required.
+
+- For SPN_UE_train_diff1, both tests show that the series is still non-stationary even after first-order differencing. So, we can further apply second-order differencing for this series.
+
+## Second-Order Differencing
+```{r}
+SPN_UE_train_diff2 <- diff(SPN_UE_train_diff1)
+```
+
+## Stationarity Check for Unemployment Series
+
+### ADF Test on the Second-Order Differenced Series
+```{r}
+adf.test(SPN_UE_train_diff2)
+```
+
+### KPSS Test on the Second-Order Differenced Series
+
+```{r}
+# KPSS Test
+kpss.test(SPN_UE_train_diff2)
+```
+## Result of ADF and KPSS Test on Second-Order Differenced Series for Unemployment Data
+
+SPN_UE_train (Spain Unemployment Rate Training Set)
+
+- ADF Test: p-value = smaller than 0.01
+
+- KPSS Test: p-value = greater than 0.1
+
+Based on these results, SPN_UE_train_diff2 is stationary. 
+
+
+## Autocorrelation Function and Partial-Autocorrelation Function (ACF & PACF)
+
+```{r}
+acf(SPN_I_train_diff1, lag.max = 36)
+pacf(SPN_I_train_diff1, lag.max = 36)
+acf(SPN_UE_train_diff2, lag.max = 36)
+pacf(SPN_UE_train_diff2, lag.max = 36)
+```
+
+In the above plots for Inflation rate series of Spain we can see seasonal spikes so we will use SARIMA model but for Unemployment rate after Box-Cox transformation and second-order differencing there is no seasonal spikes in the ACF and PACF plots so we will use ARIMA model. 
+
+## Fitting the model
+```{r}
+# Fit SARIMA model
+
+# 2 different models for Inflation rate in Spain
+
+sarima_inflation_spain_1 <- Arima(SPN_I_train,order = c(2,1,2),
+                          seasonal = list(order = c(0,0,1), period = 12),
+                          include.constant = FALSE)
+
+sarima_inflation_spain_2 <- Arima(SPN_I_train,order = c(1,1,2),
+                          seasonal = list(order = c(1,0,1), period = 12),
+                          include.constant = FALSE)
+
+
+# 2 different models for Unemployment rate in Spain
+
+
+arima_unemployment_spain_1 <- Arima(SPN_UE_train,
+                          order = c(1,2,0),  
+                          lambda="auto", include.constant = FALSE)
+
+
+arima_unemployment_spain_2 <- Arima(SPN_UE_train,
+                          order = c(1,2,1),  
+                          lambda="auto", include.constant = FALSE)
+
+
+# Check model summaries
+cat("Summary of SARIMA Inflation Model 1:\n")
+summary(sarima_inflation_spain_1)
+cat("\n")
+
+cat("Summary of SARIMA Inflation Model 2:\n")
+summary(sarima_inflation_spain_2)
+cat("\n")
+
+cat("Summary of ARIMA Unemployment Model 1:\n")
+summary(arima_unemployment_spain_1)
+cat("\n")
+
+cat("Summary of ARIMA Unemployment Model 2:\n")
+summary(arima_unemployment_spain_2)
+cat("\n")
+
+```
+
+
+Based on the AIC and BIC values, these are the chosen models:
+
+For Spain Inflation Rate: sarima_inflation_spain_1
+(ARIMA(2,1,2)(0,0,1)[12])
+
+For Spain Unemployment Rate: arima_unemployment_spain_2
+(ARIMA(1,2,1))  with Box Cox transformation
+
+## Forecasting
+```{r}
+# Forecast for 24 months
+forecast_inflation_spain <- forecast(sarima_inflation_spain_1, h=24)
+forecast_unemployment_spain <- forecast(arima_unemployment_spain_2, h=24)
+
+forecast_inflation_spain <- forecast_inflation_spain$mean
+forecast_unemployment_spain <- forecast_unemployment_spain$mean
+
+```
+
+
+## Plotting the forecasted and original data
+
+### Inflation
+```{r}
+# Plotting the original SPN_I_train series
+plot(SPN_I_train, main = "SPN_I_train with Forecast", ylab = "Value", col = "blue",
+     xlim = c(2000, 2020))  # Set x-axis limits from 2000 to mid-2023
+
+# Adding the forecasted values to the plot
+lines(forecast_time_decimal, forecast_inflation_spain, col = "red")
+
+# Connect the last actual data point to the first forecasted point
+lines(c(time(SPN_I_train)[length(SPN_I_train)], forecast_time_decimal[1]), 
+      c(tail(SPN_I_train, 1), forecast_inflation_spain[1]), col = "red")
+
+# Plotting the original data
+plot(SPN_I_TS, main = "Original Inflation Data", xlab = "Time", ylab = "Value")
+
+```
+
+### Unemployment
+```{r}
+# Plotting the original SPN_UE_train series
+plot(SPN_UE_train, main = "SPN_UE_train with Forecast", ylab = "Value", col = "blue",
+     xlim = range(c(time(SPN_UE_train), forecast_time_decimal)), # Dynamically set x-axis limits
+     ylim = range(c(SPN_UE_train, forecast_unemployment_spain))) # Set y-axis limits to include all values
+
+# Adding the forecasted values to the plot
+lines(forecast_time_decimal, forecast_unemployment_spain, col = "red")
+
+# Connect the last actual data point to the first forecasted point
+lines(c(tail(time(SPN_UE_train), 1), forecast_time_decimal[1]), 
+      c(tail(SPN_UE_train, 1), forecast_unemployment_spain[1]), col = "red")
+
+# Plotting the original data
+plot(SPN_UE_TS, main = "Original Unemployment Data", xlab = "Time", ylab = "Value")
+```
+
+
+## Computing Different Metrics
+
+### Inflation
+```{r}
+# Mean Absolute Error (MAE)
+SPN_I_mae <- mean(abs(SPN_I_test - forecast_inflation_spain))
+
+# Mean Squared Error (MSE)
+SPN_I_mse <- mean((SPN_I_test - forecast_inflation_spain)^2)
+
+# Root Mean Squared Error (RMSE)
+SPN_I_rmse <- sqrt(SPN_I_mse)
+
+# R-squared (R2) or Coefficient of Determination
+SPN_I_sst <- sum((SPN_I_test - mean(SPN_I_test))^2)
+SPN_I_ssr <- sum((SPN_I_test - forecast_inflation_spain)^2)
+SPN_I_r2 <- 1 - (SPN_I_ssr / SPN_I_sst)
+
+# Mean Absolute Percentage Error (MAPE)
+SPN_I_mape <- mean(abs((SPN_I_test - forecast_inflation_spain) / SPN_I_test)) * 100
+
+# Printing those metrics
+
+cat("Spain Inflation Rate \n\n")
+cat("Mean Absolute Error (MAE):", SPN_I_mae, "\n")
+cat("Mean Squared Error (MSE):", SPN_I_mse, "\n")
+cat("Root Mean Squared Error (RMSE):", SPN_I_rmse, "\n")
+cat("R-squared (R2):", SPN_I_r2, "\n")
+cat("Mean Absolute Percentage Error (MAPE):", SPN_I_mape, "%\n")
+```
+
+### Unemployment
+```{r}
+# Mean Absolute Error (MAE)
+SPN_UE_mae <- mean(abs(SPN_UE_test - forecast_unemployment_spain))
+
+# Mean Squared Error (MSE)
+SPN_UE_mse <- mean((SPN_UE_test - forecast_unemployment_spain)^2)
+
+# Root Mean Squared Error (RMSE)
+SPN_UE_rmse <- sqrt(SPN_UE_mse)
+
+# R-squared (R2) or Coefficient of Determination
+SPN_UE_sst <- sum((SPN_UE_test - mean(SPN_UE_test))^2)
+SPN_UE_ssr <- sum((SPN_UE_test - forecast_unemployment_spain)^2)
+SPN_UE_r2 <- 1 - (SPN_UE_ssr / SPN_UE_sst)
+
+# Mean Absolute Percentage Error (MAPE)
+SPN_UE_mape <- mean(abs((SPN_UE_test - forecast_unemployment_spain) / SPN_UE_test)) * 100
+
+# Printing those metrics
+
+cat("Spain Unemployment rate \n\n")
+cat("Mean Absolute Error (MAE):", SPN_UE_mae, "\n")
+cat("Mean Squared Error (MSE):", SPN_UE_mse, "\n")
+cat("Root Mean Squared Error (RMSE):", SPN_UE_rmse, "\n")
+cat("R-squared (R2):", SPN_UE_r2, "\n")
+cat("Mean Absolute Percentage Error (MAPE):", SPN_UE_mape, "%\n")
+```
+
+## Residual Checks
+
+```{r}
+# Check residuals of the inflation model
+checkresiduals(sarima_inflation_spain_1)
+
+# Check residuals of the unemployment model
+checkresiduals(arima_unemployment_spain_2)
+```
+Based on the Ljung-Box test p-value for residuals from both models are higher than 0.05 which means that the residuals are independently distributed and the models are well-specified. The residuals are behaving like a white noise, indicating that the models have captured the underlying patterns in the data effectively. 
+
+
+# PORTUGAL
+
+## Splitting the dataset
+```{r}
+# Inflation Data
+
+# Create the training set
+POR_I_train <- window(POR_I_TS, start=start_train, end=end_train)
+
+# Create the test set
+POR_I_test <- window(POR_I_TS, start=start_test, end=end_test)
+
+# Unemployment Data
+
+# Create the training set
+POR_UE_train <- window(POR_UE_TS, start=start_train, end=end_train)
+
+# Create the test set
+POR_UE_test <- window(POR_UE_TS, start=start_test, end=end_test)
+```
+
+
+## Descriptive Statistics of the Data
+
+```{r}
+print("Portugal Inflation Rate Data Summary:")
+summary(POR_I_train)
+cat("\n")
+print("Portugal Unemployment Rate Data Summary:")
+summary(POR_UE_train)
+```
+
+## Plotting Histogram
+```{r}
+# Inflation Portugal
+hist(POR_I_train,col='steelblue', border = "white", xlab = 'Portugal Inflation Rate Index', ylab = 'Number of periods', main = 'Portugal Inflation Rate')
+
+# Unemployment Portugal
+hist(POR_UE_train,col='steelblue', border = "white", xlab = 'Portugal Unemployment Rate Index', ylab = 'Number of periods', main = 'Portugal Unemployment Rate')
+```
+
+## Time Series Decomposition
+```{r}
+POR_I_train_decomposed <- decompose(POR_I_train)
+POR_UE_train_decomposed <- decompose(POR_UE_train)
+```
+
+
+## Plot the decomposed series
+```{r}
+plot(POR_I_train_decomposed)
+plot(POR_UE_train_decomposed)
+```
+
+## Box-Cox Transformation
+```{r warning=FALSE}
+BoxCox.lambda(POR_I_train)
+```
+For Germany Inflation series, we will apply box-cox transformation. 
+
+```{r}
+BoxCox.lambda(POR_UE_train)
+```
+For Germany Unemployment series as well, we do need to apply box-cox transformation.
+
+```{r}
+lambda_por_i <- 0.8705989
+POR_I_train_BoxCox <- BoxCox(POR_I_train, lambda = lambda_por_i)
+
+lambda_por_ue <- 0.3550989
+POR_UE_train_BoxCox <- BoxCox(POR_UE_train, lambda = lambda_por_ue)
+```
+
+## Stationarity Check
+
+### ADF Test
+```{r}
+# Augmented Dickey-Fuller Test
+adf.test(POR_I_train_BoxCox)
+adf.test(POR_UE_train_BoxCox)
+```
+
+### KPSS Test
+```{r}
+# KPSS Test
+kpss.test(POR_I_train_BoxCox)
+kpss.test(POR_UE_train_BoxCox)
+
+```
+## Result of ADF and KPSS Test
+
+POR_I_train_BoxCox (Portugal Inflation Rate Training Set)
+
+- ADF Test: p-value = 0.2422
+
+- KPSS Test: p-value = smaller than 0.01
+
+
+POR_UE_train_BoxCox (Portugal Unemployment Rate Training Set)
+
+- ADF Test: p-value = 0.99
+
+- KPSS Test: p-value = smaller than 0.01
+
+So, based on these results:
+
+- For POR_I_train_BoxCox, both tests show non-stationarity. So, we have to apply differencing to this series.
+
+- For POR_UE_train_BoxCox as well, both tests show non-stationarity. We definitely have to apply differencing to this series.
+
+
+## First-Order Differences
+
+```{r}
+POR_I_train_diff1 <- diff(POR_I_train_BoxCox)
+POR_UE_train_diff1 <- diff(POR_UE_train_BoxCox)
+```
+
+## Stationarity Check Again
+
+### ADF Test on the First-Order Differenced Series
+```{r}
+adf.test(POR_I_train_diff1)
+adf.test(POR_UE_train_diff1)
+```
+### KPSS Test on the First-Order Differenced Series
+
+```{r}
+# KPSS Test
+kpss.test(POR_I_train_diff1)
+kpss.test(POR_UE_train_diff1)
+
+```
+## Result of ADF and KPSS Test on First-Order Differenced Series
+
+POR_I_train (Portugal Inflation Rate Training Set)
+
+- ADF Test: p-value = smaller than 0.01
+
+- KPSS Test: p-value = greater than 0.1
+
+
+POR_UE_train (Portugal Unemployment Rate Training Set)
+
+- ADF Test: p-value = 0.04969
+
+- KPSS Test: p-value = smaller than 0.01
+
+So, based on these results:
+
+- For POR_I_train_diff1, both tests show stationarity. So, no further differencing required.
+
+- For POR_UE_train_diff1, ADF test suggests a borderline case but still allowing for the rejection of the null hypothesis of non-stationarity. But KPSS test still indicates non-stationarity. So, we can further apply second-order differencing for this series.
+
+## Second-Order Differencing
+```{r}
+POR_UE_train_diff2 <- diff(POR_UE_train_diff1)
+```
+
+## Stationarity Check for Unemployment Series
+
+### ADF Test on the Second-Order Differenced Series
+```{r}
+adf.test(POR_UE_train_diff2)
+```
+
+### KPSS Test on the Second-Order Differenced Series
+
+```{r}
+# KPSS Test
+kpss.test(POR_UE_train_diff2)
+```
+## Result of ADF and KPSS Test on Second-Order Differenced Series for Unemployment Data
+
+POR_UE_train (Portugal Unemployment Rate Training Set)
+
+- ADF Test: p-value = smaller than 0.01
+
+- KPSS Test: p-value = greater than 0.1
+
+Based on these results, POR_UE_train_diff2 is stationary. 
+
+
+## Autocorrelation Function and Partial-Autocorrelation Function (ACF & PACF)
+
+```{r}
+acf(POR_I_train_diff1, lag.max = 36)
+pacf(POR_I_train_diff1, lag.max = 36)
+acf(POR_UE_train_diff2, lag.max = 36)
+pacf(POR_UE_train_diff2, lag.max = 36)
+```
+
+In the above plots for Inflation rate series of Portugal we can see seasonal spikes so we will use SARIMA model but for Unemployment rate after Box-Cox transformation and second-order differencing there is no seasonal spikes in the ACF and PACF plots so we will use ARIMA model. 
+
+## Fitting the model
+
+```{r}
+# Fit SARIMA model
+
+# 2 different models for Inflation rate in Portugal
+
+sarima_inflation_portugal_1 <- Arima(POR_I_train,order =
+                          c(6,1,0),
+                          seasonal = list(order = c(0,0,1),
+                          period = 12),
+                          lambda = "auto",
+                          include.constant = FALSE)
+
+sarima_inflation_portugal_2 <- Arima(POR_I_train,order =
+                          c(0,1,1),
+                          seasonal = list(order = c(0,0,2),
+                          period = 12), lambda = "auto",
+                          include.constant = FALSE)
+
+# 2 different models for Unemployment rate in Portugal
+
+
+arima_unemployment_portugal_1 <- Arima(POR_UE_train,
+                          order = c(2,2,2),  
+                          lambda="auto", include.constant = FALSE)
+
+
+arima_unemployment_portugal_2 <- Arima(POR_UE_train,
+                          order = c(1,2,2),  
+                          lambda="auto", include.constant = FALSE)
+
+# Check model summaries
+cat("Summary of SARIMA Inflation Model 1:\n")
+summary(sarima_inflation_portugal_1)
+cat("\n")
+
+cat("Summary of SARIMA Inflation Model 2:\n")
+summary(sarima_inflation_portugal_2)
+cat("\n")
+
+cat("Summary of ARIMA Unemployment Model 1:\n")
+summary(arima_unemployment_portugal_1)
+cat("\n")
+
+cat("Summary of ARIMA Unemployment Model 2:\n")
+summary(arima_unemployment_portugal_2)
+cat("\n")
+
+```
+Based on the AIC and BIC values, these are the chosen models:
+
+For Portugal Inflation Rate: sarima_inflation_portugal_1
+(ARIMA(6,1,0)(0,0,1)[12]) with Box Cox transformation.
+
+For Portugal Unemployment Rate: arima_unemployment_portugal_1
+(ARIMA(2,2,2)) with Box Cox transformation.
+
+## Forecasting
+```{r}
+# Forecast for 24 months
+forecast_inflation_portugal <- forecast(sarima_inflation_portugal_1, h=24)
+forecast_unemployment_portugal <- forecast(arima_unemployment_portugal_1, h=24)
+
+forecast_inflation_portugal <- forecast_inflation_portugal$mean
+forecast_unemployment_portugal <- forecast_unemployment_portugal$mean
+
+```
+
+
+## Plotting the forecasted and original data
+
+### Inflation
+```{r}
+# Plotting the original POR_I_train series
+plot(POR_I_train, main = "POR_I_train with Forecast", ylab = "Value", col = "blue",
+     xlim = c(2000, 2020))  # Set x-axis limits from 2000 to mid-2023
+
+# Adding the forecasted values to the plot
+lines(forecast_time_decimal, forecast_inflation_portugal, col = "red")
+
+# Connect the last actual data point to the first forecasted point
+lines(c(time(POR_I_train)[length(POR_I_train)], forecast_time_decimal[1]), 
+      c(tail(POR_I_train, 1), forecast_inflation_portugal[1]), col = "red")
+
+# Plotting the original data
+plot(POR_I_TS, main = "Original Inflation Data", xlab = "Time", ylab = "Value")
+
+```
+
+### Unemployment
+```{r}
+# Plotting the original POR_UE_train series
+plot(POR_UE_train, main = "POR_UE_train with Forecast", ylab = "Value", col = "blue",
+     xlim = range(c(time(POR_UE_train), forecast_time_decimal)), # Dynamically set x-axis limits
+     ylim = range(c(POR_UE_train, forecast_unemployment_portugal))) # Set y-axis limits to include all values
+
+# Adding the forecasted values to the plot
+lines(forecast_time_decimal, forecast_unemployment_portugal, col = "red")
+
+# Connect the last actual data point to the first forecasted point
+lines(c(tail(time(POR_UE_train), 1), forecast_time_decimal[1]), 
+      c(tail(POR_UE_train, 1), forecast_unemployment_portugal[1]), col = "red")
+
+# Plotting the original data
+plot(POR_UE_TS, main = "Original Unemployment Data", xlab = "Time", ylab = "Value")
+```
+
+## Computing Different Metrics
+
+### Inflation
+```{r}
+# Mean Absolute Error (MAE)
+POR_I_mae <- mean(abs(POR_I_test - forecast_inflation_portugal))
+
+# Mean Squared Error (MSE)
+POR_I_mse <- mean((POR_I_test - forecast_inflation_portugal)^2)
+
+# Root Mean Squared Error (RMSE)
+POR_I_rmse <- sqrt(POR_I_mse)
+
+# R-squared (R2) or Coefficient of Determination
+POR_I_sst <- sum((POR_I_test - mean(POR_I_test))^2)
+POR_I_ssr <- sum((POR_I_test - forecast_inflation_portugal)^2)
+POR_I_r2 <- 1 - (POR_I_ssr / POR_I_sst)
+
+# Mean Absolute Percentage Error (MAPE)
+POR_I_mape <- mean(abs((POR_I_test - forecast_inflation_portugal) / POR_I_test)) * 100
+
+# Printing those metrics
+
+cat("Portugal Inflation Rate \n\n")
+cat("Mean Absolute Error (MAE):", POR_I_mae, "\n")
+cat("Mean Squared Error (MSE):", POR_I_mse, "\n")
+cat("Root Mean Squared Error (RMSE):", POR_I_rmse, "\n")
+cat("R-squared (R2):", POR_I_r2, "\n")
+cat("Mean Absolute Percentage Error (MAPE):", POR_I_mape, "%\n")
+```
+
+### Unemployment
+```{r}
+# Mean Absolute Error (MAE)
+POR_UE_mae <- mean(abs(POR_UE_test - forecast_unemployment_portugal))
+
+# Mean Squared Error (MSE)
+POR_UE_mse <- mean((POR_UE_test - forecast_unemployment_portugal)^2)
+
+# Root Mean Squared Error (RMSE)
+POR_UE_rmse <- sqrt(POR_UE_mse)
+
+# R-squared (R2) or Coefficient of Determination
+POR_UE_sst <- sum((POR_UE_test - mean(POR_UE_test))^2)
+POR_UE_ssr <- sum((POR_UE_test - forecast_unemployment_portugal)^2)
+POR_UE_r2 <- 1 - (POR_UE_ssr / POR_UE_sst)
+
+# Mean Absolute Percentage Error (MAPE)
+POR_UE_mape <- mean(abs((POR_UE_test - forecast_unemployment_portugal) / POR_UE_test)) * 100
+
+# Printing those metrics
+
+cat("Portugal Unemployment rate \n\n")
+cat("Mean Absolute Error (MAE):", POR_UE_mae, "\n")
+cat("Mean Squared Error (MSE):", POR_UE_mse, "\n")
+cat("Root Mean Squared Error (RMSE):", POR_UE_rmse, "\n")
+cat("R-squared (R2):", POR_UE_r2, "\n")
+cat("Mean Absolute Percentage Error (MAPE):", POR_UE_mape, "%\n")
+```
+
+## Residual Checks
+
+```{r}
+# Check residuals of the inflation model
+checkresiduals(sarima_inflation_portugal_1)
+
+# Check residuals of the unemployment model
+checkresiduals(arima_unemployment_portugal_1)
+```
+Based on the Ljung-Box test p-value for residuals from both models are higher than 0.05 which means that the residuals are independently distributed and the models are well-specified. The residuals are behaving like a white noise, indicating that the models have captured the underlying patterns in the data effectively.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
